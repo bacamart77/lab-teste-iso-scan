@@ -1,0 +1,67 @@
+name: Linux Mint ISO Security Scan
+
+on:
+  workflow_dispatch: # Permite rodar manualmente pelo botão "Run workflow"
+
+jobs:
+  mint-iso-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Baixar a ISO do Linux Mint e os arquivos de checksum/assinatura
+      - name: Download Mint ISO and Checksums
+        run: |
+          wget -q https://mirrors.kernel.org/linuxmint/stable/21.3/linuxmint-21.3-cinnamon-64bit.iso
+          wget -q https://mirrors.kernel.org/linuxmint/stable/21.3/sha256sum.txt
+          wget -q https://mirrors.kernel.org/linuxmint/stable/21.3/sha256sum.txt.gpg
+          ls -lh
+
+      # 2. Verificação de Integridade (SHA256)
+      - name: Verify Checksum
+        run: |
+          sha256sum -c sha256sum.txt --ignore-missing
+
+      # 3. Importar chave GPG e Verificar Autenticidade
+      - name: Verify GPG Signature
+        run: |
+          gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-key "27DE B156 44C6 B3CF 3BD7 D291 300F 846B A25B AE09"
+          gpg --verify sha256sum.txt.gpg sha256sum.txt
+
+      # 4. Instalar ferramentas e extrair a base de pacotes da ISO
+      - name: Extract Package Database
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y squashfs-tools
+          mkdir -p /mnt/iso
+          sudo mount -o loop,ro linuxmint-21.3-cinnamon-64bit.iso /mnt/iso
+          SQUASH_FILE=$(sudo find /mnt/iso -name '*.squashfs' | head -n 1)
+          echo "Arquivo squashfs encontrado: $SQUASH_FILE"
+          sudo unsquashfs -d ./extracted-rootfs "$SQUASH_FILE" var/lib/dpkg
+          sudo umount /mnt/iso
+
+      # 5. Gerar o SBOM (inventário) com Syft
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./extracted-rootfs
+          format: 'spdx-json'
+          output-file: 'mint-sbom.spdx.json'
+
+      # 6. Escanear o SBOM em busca de vulnerabilidades com Grype
+      - name: Scan SBOM with Grype
+        uses: anchore/scan-action@v3
+        with:
+          sbom: 'mint-sbom.spdx.json'
+          fail-build: true
+          severity-cutoff: 'high'
+
+      # 7. Salvar o relatório como artefato (opcional, mas útil)
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iso-scan-report
+          path: |
+            mint-sbom.spdx.json
