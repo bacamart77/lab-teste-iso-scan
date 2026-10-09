@@ -34,7 +34,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y squashfs-tools
-          mkdir -p /mnt/iso
+          sudo mkdir -p /mnt/iso
           sudo mount -o loop,ro linuxmint-21.3-cinnamon-64bit.iso /mnt/iso
           SQUASH_FILE=$(sudo find /mnt/iso -name '*.squashfs' | head -n 1)
           echo "Arquivo squashfs encontrado: $SQUASH_FILE"
